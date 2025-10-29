@@ -25,10 +25,14 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KIOS Camera + QR System")
-
-        screen = QApplication.primaryScreen().geometry()
-        self.setGeometry(0, 0, screen.width(), screen.height())
         self.setStyleSheet(MAIN_STYLE)
+
+        # === FULLSCREEN CHANGES ===
+        # คีออสก์โหมด: ไม่มีกรอบหน้าต่าง + อยู่บนสุด + เตรียมเข้าสู่ Fullscreen
+        self.setWindowFlag(Qt.FramelessWindowHint, True)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        # ไม่ต้อง setGeometry เองอีกต่อไป ให้ไป showFullScreen ตอนท้าย
+        # (ถ้าอยากบังคับจอแรก: ใช้ QScreen/primaryScreen แต่ใน fullscreen ไม่จำเป็น)
 
         # --- State ---
         self.state = "take_pic"
@@ -153,19 +157,16 @@ class MainWindow(QWidget):
         cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
         if not cap.isOpened():
             return None
-        # ตั้งค่าที่ UVC ส่วนใหญ่รองรับ + ลดโอกาสค้าง
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_FPS, 30)
-        # warm-up
         for _ in range(8):
             cap.read()
         return cap
 
     def _open_camera_with_retry(self):
-        # ลอง /dev/video0 ก่อน แล้วค่อย /dev/video1
         for idx in (0, 1):
             cap = self._open_uvc(idx)
             if cap is not None:
@@ -211,13 +212,12 @@ class MainWindow(QWidget):
 
     # ---------- Helper: blank canvas when preview off ----------
     def _blank_canvas(self, width=640, height=480):
-        canvas = np.full((height, width, 3), (240, 242, 245), dtype=np.uint8)  # เทาอ่อน
-        cv2.rectangle(canvas, (4, 4), (width-5, height-5), (210, 214, 220), 2) # กรอบ
+        canvas = np.full((height, width, 3), (240, 242, 245), dtype=np.uint8)
+        cv2.rectangle(canvas, (4, 4), (width-5, height-5), (210, 214, 220), 2)
         return canvas
 
     # ---------- Helper: thumbs-up status on canvas (preview off) ----------
     def _draw_thumbs_status(self, frame_bgr, is_yes: bool, hold_elapsed: float):
-        # หมายเหตุ: ใช้อังกฤษ เพื่อเลี่ยงปัญหาภาษาไทยกับ cv2.putText
         h, w = frame_bgr.shape[:2]
         status = f"Thumbs up: {'YES' if is_yes else 'NO'}"
         color = (0, 180, 0) if is_yes else (80, 80, 80)
@@ -245,14 +245,12 @@ class MainWindow(QWidget):
         src_path = self.painted_path or self.captured_path
         h, w = frame_bgr.shape[:2]
 
-        # วาง "กลางจอ" จริง ๆ
         box_w = box_h = box_size
         x0 = (w - box_w) // 2
         y0 = (h - box_h) // 2
         x1 = x0 + box_w
         y1 = y0 + box_h
 
-        # กรอบ + ชื่อ
         cv2.rectangle(frame_bgr, (x0-6, y0-36), (x1+6, y1+6), (200, 200, 200), 2)
         title = "QR Image Preview"
         (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
@@ -265,7 +263,6 @@ class MainWindow(QWidget):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (120,120,120), 2, cv2.LINE_AA)
             return
 
-        # cache thumb
         if self._qr_thumb_cache_path != src_path or self._qr_thumb_cache_img is None:
             img = cv2.imread(src_path, cv2.IMREAD_COLOR)
             if img is None:
@@ -301,16 +298,13 @@ class MainWindow(QWidget):
         print("[Action] Restart to initial state")
 
     def update_frame(self):
-        # อ่านกล้อง พร้อม auto-reopen เมื่อ fail ต่อเนื่อง
         if self.cap is None:
             show_frame = self._blank_canvas(640, 480)
             cv2.putText(show_frame, "ไม่พบกล้อง / กล้องไม่พร้อม", (40, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2, cv2.LINE_AA)
-            # แสดงบน QLabel แล้ว return
             rgb = cv2.cvtColor(show_frame, cv2.COLOR_BGR2RGB)
             img = QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.shape[1]*3, QImage.Format_RGB888)
             self.lbl_camera.setPixmap(QPixmap.fromImage(img))
-            # พยายามเปิดใหม่เป็นระยะ
             self._open_camera_with_retry()
             return
 
@@ -337,7 +331,6 @@ class MainWindow(QWidget):
         else:
             self._cam_fail_count = 0
 
-        # show_frame depends on preview mode
         if self.preview_enabled:
             show_frame = frame.copy()
         else:
@@ -349,7 +342,6 @@ class MainWindow(QWidget):
 
         if self.state == "take_pic" and self.hand_tracker is not None:
             try:
-                # process on real camera frame (even if preview is off)
                 _proc_frame = frame if frame is not None else np.zeros((480,640,3), dtype=np.uint8)
                 proc_vis, hand_info = self.hand_tracker.process(_proc_frame, draw=self.preview_enabled)
 
@@ -371,7 +363,6 @@ class MainWindow(QWidget):
                     self.gesture_hold_start = None
                     hold_elapsed = 0.0
 
-                # Hints (EN บนเฟรม), label ไทยแยกอยู่ด้านบน
                 if self.preview_enabled:
                     cv2.putText(show_frame, "Hold thumbs up 3s -> auto countdown",
                                 (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 150, 255), 2, cv2.LINE_AA)
@@ -390,7 +381,6 @@ class MainWindow(QWidget):
                 else:
                     self._draw_thumbs_status(show_frame, thumbs_up_detected, hold_elapsed)
 
-                # when hold complete -> start countdown
                 if hold_elapsed >= self.gesture_hold_req and not self.countdown_active:
                     self.gesture_hold_active = False
                     self.gesture_hold_start = None
@@ -406,7 +396,6 @@ class MainWindow(QWidget):
 
         # ====== Countdown / State Flow ======
         if self.state == "take_pic":
-            # ไทยบน QLabel
             if self.countdown_active:
                 self.lbl_state.setText("ขยับให้ตรงและมองกล้อง")
             else:
@@ -416,7 +405,6 @@ class MainWindow(QWidget):
                 elapsed = int(time.time() - self.countdown_start)
                 remaining = self.countdown_time - elapsed
 
-                # draw countdown on current canvas (preview on/off both)
                 h, w, _ = show_frame.shape
                 center = (w//2, h//2)
                 radius = min(h, w) // 4
@@ -429,7 +417,7 @@ class MainWindow(QWidget):
                 else:
                     utils.ensure_dir("output/raw")
                     self.captured_path = os.path.join("output/raw", utils.timestamp_name("capture", "jpg"))
-                    cv2.imwrite(self.captured_path, frame)  # always save real frame
+                    cv2.imwrite(self.captured_path, frame)
                     print(f"[Flow] saved raw (countdown): {self.captured_path}")
                     self.state = "generate_paint"
                     self.countdown_active = False
@@ -459,7 +447,6 @@ class MainWindow(QWidget):
             self.lbl_uuid.setText(f"uuid : {self.current_token}")
             self.lbl_qr.setPixmap(QPixmap(self.qr_path).scaled(300, 300, Qt.KeepAspectRatio))
 
-            # แสดงภาพโลโก้กลาง canvas ถ้า preview ปิด
             if not self.preview_enabled:
                 self._draw_qr_image_preview(show_frame, box_size=256)
 
@@ -468,7 +455,6 @@ class MainWindow(QWidget):
         elif self.state == "capture":
             self.lbl_state.setText("ถ่ายรูปแผ่นทางด้านซ้าย และนำ QR code มาตรวจสอบกับกล้อง \nหากสแกนไม่ติดลองปรับความสว่าง")
 
-            # decode QR from live frame (camera)
             qrcodes = pyzbar.decode(frame)
             for qr in qrcodes:
                 (x, y, w, h) = qr.rect
@@ -484,14 +470,11 @@ class MainWindow(QWidget):
                     self.lbl_qr.setText("[ QR CODE ]")
                     self.state = "take_pic"
 
-            # keep showing logo preview while waiting scan (preview OFF)
             if not self.preview_enabled:
                 self._draw_qr_image_preview(show_frame, box_size=256)
 
-        # HUD
         self._draw_hud(show_frame)
 
-        # Show on QLabel
         rgb = cv2.cvtColor(show_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         img = QImage(rgb.data, w, h, ch*w, QImage.Format_RGB888)
@@ -506,12 +489,23 @@ class MainWindow(QWidget):
         self.painted_path = None
         self.qr_path = None
         self.current_token = None
-        # reset preview cache
         self._qr_thumb_cache_path = None
         self._qr_thumb_cache_img = None
 
     def keyPressEvent(self, event):
         now = time.time()
+
+        # === FULLSCREEN CHANGES ===
+        # F11: toggle fullscreen/windowed (เผื่อดีบัก)
+        if event.key() == Qt.Key_F11:
+            if self.windowState() & Qt.WindowFullScreen:
+                # กลับเป็นหน้าต่างธรรมดา แต่ยัง Frameless+OnTop
+                self.setWindowState(self.windowState() & ~Qt.WindowFullScreen)
+                print("[Key] F11 -> Windowed")
+            else:
+                self.setWindowState(self.windowState() | Qt.WindowFullScreen)
+                print("[Key] F11 -> Fullscreen")
+            return
 
         # SPACE = start countdown (in take_pic)
         if event.key() == Qt.Key_Space and self.state == "take_pic":
@@ -521,27 +515,23 @@ class MainWindow(QWidget):
                 self.countdown_time = 3
                 print("[Key] SPACE -> start countdown")
 
-        # E = toggle AI Paint
         elif event.key() == Qt.Key_E:
             if now - self._last_key_time > 0.15:
                 self.ai_paint_enabled = not self.ai_paint_enabled
                 self._last_key_time = now
                 print(f"[Key] Toggle AI Paint -> {'ON' if self.ai_paint_enabled else 'OFF'}")
 
-        # Q = toggle Preview
         elif event.key() == Qt.Key_Q:
             if now - self._last_key_time > 0.15:
                 self.preview_enabled = not self.preview_enabled
                 self._last_key_time = now
                 print(f"[Key] Toggle Preview -> {'ON' if self.preview_enabled else 'OFF'}")
 
-        # R = Restart
         elif event.key() == Qt.Key_R:
             if now - self._last_key_time > 0.15:
                 self._last_key_time = now
                 self._reset_to_initial()
 
-        # ESC = Exit
         elif event.key() == Qt.Key_Escape:
             self.close()
 
@@ -556,5 +546,7 @@ class MainWindow(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = MainWindow()
-    win.show()
+    # === FULLSCREEN CHANGES ===
+    # แสดงผลแบบเต็มจอจริงๆ (แทน win.show())
+    win.showFullScreen()
     sys.exit(app.exec_())
