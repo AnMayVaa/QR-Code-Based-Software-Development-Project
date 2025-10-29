@@ -1,5 +1,6 @@
 import sys, os, time, cv2, glob
 import numpy as np
+from datetime import datetime
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QTimer
@@ -17,9 +18,14 @@ QLabel { font-size: 13pt; color: #2c3e50; }
 QLabel#UUID { font-size: 15pt; font-weight: bold; color: #e74c3c; }
 QLabel#Title { font-size: 13pt; font-weight: 600; color: #34495e; }
 QLabel#Manual { font-size: 11pt; line-height: 150%; color: #777777; }
-QLabel#State { font-size: 20pt; font-weight: 700;
-    color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff6a00, stop:1 #ee0979); }
+QLabel#State { font-size: 20pt; font-weight: 700; color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff6a00, stop:1 #ee0979); }
 """
+
+# ---------------- Logging config (added) ----------------
+LOG_DIR = "logs"
+def _ts():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# -------------------------------------------------------
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -28,11 +34,8 @@ class MainWindow(QWidget):
         self.setStyleSheet(MAIN_STYLE)
 
         # === FULLSCREEN CHANGES ===
-        # คีออสก์โหมด: ไม่มีกรอบหน้าต่าง + อยู่บนสุด + เตรียมเข้าสู่ Fullscreen
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        # ไม่ต้อง setGeometry เองอีกต่อไป ให้ไป showFullScreen ตอนท้าย
-        # (ถ้าอยากบังคับจอแรก: ใช้ QScreen/primaryScreen แต่ใน fullscreen ไม่จำเป็น)
 
         # --- State ---
         self.state = "take_pic"
@@ -143,14 +146,45 @@ class MainWindow(QWidget):
         self.hand_tracker = None
         try:
             self.hand_tracker = hand_module.HandTracker(max_hands=1)
-            print("[MP] HandTracker initialized OK")
+            self.log("[MP] HandTracker initialized OK")
         except Exception as e:
-            print(f"[MP] HandTracker disabled: {e}")
+            self.log(f"[MP] HandTracker disabled: {e}")
 
         # Timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(30)
+
+        # --- Logging init & Process timing (added) ---
+        utils.ensure_dir(LOG_DIR)
+        self.log_path = os.path.join(LOG_DIR, datetime.now().strftime("kios_%Y%m%d.log"))
+        self._t_proc_start = None
+        self._t_paint_dur = None
+        self._t_qr_dur = None
+        # --------------------------------------------
+
+    # ---------------- Logging functions (added) ----------------
+    def log(self, msg: str):
+        line = f"[{_ts()}] {msg}"
+        print(line, flush=True)
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception as e:
+            print(f"[{_ts()}] [LOG WRITE ERROR] {e}", flush=True)
+
+    def _append_proc_csv(self, total_s: float, paint_s: float, qr_s: float):
+        try:
+            utils.ensure_dir(LOG_DIR)
+            csv_path = os.path.join(LOG_DIR, "proc_times.csv")
+            new_file = not os.path.exists(csv_path)
+            with open(csv_path, "a", encoding="utf-8") as f:
+                if new_file:
+                    f.write("timestamp,total_sec,paint_sec,qr_sec\n")
+                f.write(f"{_ts()},{total_s:.3f},{paint_s:.3f},{qr_s:.3f}\n")
+        except Exception as e:
+            self.log(f"[PROC/CSV] write error: {e}")
+    # -----------------------------------------------------------
 
     # ---------- Camera open helpers ----------
     def _open_uvc(self, index=0):
@@ -171,9 +205,9 @@ class MainWindow(QWidget):
             cap = self._open_uvc(idx)
             if cap is not None:
                 self.cap = cap
-                print(f"[Cam] opened /dev/video{idx} (MJPG, 640x480@30)")
+                self.log(f"[Cam] opened /dev/video{idx} (MJPG, 640x480@30)")
                 return
-        print("[Cam] cannot open UVC (/dev/video0/1).")
+        self.log("[Cam] cannot open UVC (/dev/video0/1).")
 
     # ---------- Helper: draw HUD (toggles/status) ----------
     def _draw_hud(self, frame_bgr):
@@ -295,7 +329,7 @@ class MainWindow(QWidget):
         self.lbl_qr.setText("[ QR CODE ]")
         self.lbl_state.setText("ยกนิ้วโป้งค้างไว้หน้ากล้องจนครบ 3 วินาที")
         self.state = "take_pic"
-        print("[Action] Restart to initial state")
+        self.log("[Action] Restart to initial state")
 
     def update_frame(self):
         if self.cap is None:
@@ -312,7 +346,7 @@ class MainWindow(QWidget):
         if not ret or frame is None or frame.size == 0:
             self._cam_fail_count += 1
             if self._cam_fail_count >= 10:
-                print("[Cam] many read fails -> reopen")
+                self.log("[Cam] many read fails -> reopen")
                 try:
                     self.cap.release()
                 except:
@@ -354,11 +388,11 @@ class MainWindow(QWidget):
                     if not self.gesture_hold_active:
                         self.gesture_hold_active = True
                         self.gesture_hold_start = time.time()
-                        print("[MP] thumbs_up detected -> start hold timer")
+                        self.log("[MP] thumbs_up detected -> start hold timer")
                     hold_elapsed = time.time() - self.gesture_hold_start
                 else:
                     if self.gesture_hold_active:
-                        print("[MP] thumbs_up lost -> reset hold timer")
+                        self.log("[MP] thumbs_up lost -> reset hold timer")
                     self.gesture_hold_active = False
                     self.gesture_hold_start = None
                     hold_elapsed = 0.0
@@ -387,12 +421,12 @@ class MainWindow(QWidget):
                     self.countdown_active = True
                     self.countdown_start = time.time()
                     self.countdown_time = 3
-                    print("[Flow] gesture-hold OK -> start countdown (3..2..1)")
+                    self.log("[Flow] gesture-hold OK -> start countdown (3..2..1)")
                     cv2.putText(show_frame, "Gesture OK! Starting countdown...",
                                 (16, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,200,0), 3, cv2.LINE_AA)
 
             except Exception as e:
-                print(f"[MP] runtime error: {e}")
+                self.log(f"[MP] runtime error: {e}")
 
         # ====== Countdown / State Flow ======
         if self.state == "take_pic":
@@ -418,37 +452,60 @@ class MainWindow(QWidget):
                     utils.ensure_dir("output/raw")
                     self.captured_path = os.path.join("output/raw", utils.timestamp_name("capture", "jpg"))
                     cv2.imwrite(self.captured_path, frame)
-                    print(f"[Flow] saved raw (countdown): {self.captured_path}")
+                    self.log(f"[Flow] saved raw (countdown): {self.captured_path}")
                     self.state = "generate_paint"
                     self.countdown_active = False
+
+                    # === START MAIN PROCESS TIMER (capture -> QR) ===
+                    self._t_proc_start = time.time()
+                    self._t_paint_dur = None
+                    self._t_qr_dur = None
 
         elif self.state == "generate_paint":
             self.lbl_state.setText(f"กำลังสร้างภาพสำหรับฝังใน QR... ({'AI เปิด' if self.ai_paint_enabled else 'โหมดเร็ว'})")
             try:
+                t0 = time.time()  # timing
                 if self.ai_paint_enabled:
                     self.painted_path = paint_model.generate_paint(self.captured_path, style=self.current_style, size=512)
-                    print(f"[Flow] paint saved: {self.painted_path}")
+                    self.log(f"[Flow] paint saved: {self.painted_path}")
                 else:
                     self.painted_path = self._fast_make_painted(self.captured_path, target_size=512)
-                    print(f"[Flow] fast-painted saved: {self.painted_path}")
+                    self.log(f"[Flow] fast-painted saved: {self.painted_path}")
+                self._t_paint_dur = time.time() - t0
+                self.log(f"[PROC] paint duration: {self._t_paint_dur:.3f}s")
             except Exception as e:
-                print(f"[Flow] paint step error -> fallback to fast: {e}")
+                self.log(f"[Flow] paint step error -> fallback to fast: {e}")
+                t0 = time.time()  # timing fallback
                 self.painted_path = self._fast_make_painted(self.captured_path, target_size=512)
+                self._t_paint_dur = time.time() - t0
+                self.log(f"[PROC] paint duration (fallback fast): {self._t_paint_dur:.3f}s")
 
             self.state = "generate_qr"
 
         elif self.state == "generate_qr":
             self.lbl_state.setText("ถ่ายรูปแผ่นทางด้านซ้าย และนำ QR code มาตรวจสอบกับกล้อง")
+            t1 = time.time()  # timing qr
             self.current_token = qr_module.gen_token(22)
             self.qr_path = qr_module.generate_qr_with_logo(
                 self.current_token, self.painted_path, logo_scale=0.31, border_ratio=0.032
             )
-            print(f"[Flow] token: {self.current_token}")
+            self._t_qr_dur = time.time() - t1
+            self.log(f"[PROC] qr generation duration: {self._t_qr_dur:.3f}s")
+
+            self.log(f"[Flow] token: {self.current_token}")
             self.lbl_uuid.setText(f"uuid : {self.current_token}")
             self.lbl_qr.setPixmap(QPixmap(self.qr_path).scaled(300, 300, Qt.KeepAspectRatio))
 
             if not self.preview_enabled:
                 self._draw_qr_image_preview(show_frame, box_size=256)
+
+            # === TOTAL (capture -> QR done) ===
+            if self._t_proc_start is not None:
+                total = time.time() - self._t_proc_start
+                paint_s = self._t_paint_dur or 0.0
+                qr_s = self._t_qr_dur or 0.0
+                self.log(f"[PROC] capture->qr TOTAL: {total:.3f}s (paint={paint_s:.3f}s, qr={qr_s:.3f}s)")
+                self._append_proc_csv(total, paint_s, qr_s)
 
             self.state = "capture"
 
@@ -464,7 +521,7 @@ class MainWindow(QWidget):
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
                 token_text = qr.data.decode("utf-8")
                 if token_text == self.current_token:
-                    print("[Flow] QR matched -> reset")
+                    self.log("[Flow] QR matched -> reset")
                     self.cleanup_output()
                     self.lbl_uuid.setText("uuid : ")
                     self.lbl_qr.setText("[ QR CODE ]")
@@ -501,10 +558,10 @@ class MainWindow(QWidget):
             if self.windowState() & Qt.WindowFullScreen:
                 # กลับเป็นหน้าต่างธรรมดา แต่ยัง Frameless+OnTop
                 self.setWindowState(self.windowState() & ~Qt.WindowFullScreen)
-                print("[Key] F11 -> Windowed")
+                self.log("[Key] F11 -> Windowed")
             else:
                 self.setWindowState(self.windowState() | Qt.WindowFullScreen)
-                print("[Key] F11 -> Fullscreen")
+                self.log("[Key] F11 -> Fullscreen")
             return
 
         # SPACE = start countdown (in take_pic)
@@ -513,19 +570,19 @@ class MainWindow(QWidget):
                 self.countdown_active = True
                 self.countdown_start = time.time()
                 self.countdown_time = 3
-                print("[Key] SPACE -> start countdown")
+                self.log("[Key] SPACE -> start countdown")
 
         elif event.key() == Qt.Key_E:
             if now - self._last_key_time > 0.15:
                 self.ai_paint_enabled = not self.ai_paint_enabled
                 self._last_key_time = now
-                print(f"[Key] Toggle AI Paint -> {'ON' if self.ai_paint_enabled else 'OFF'}")
+                self.log(f"[Key] Toggle AI Paint -> {'ON' if self.ai_paint_enabled else 'OFF'}")
 
         elif event.key() == Qt.Key_Q:
             if now - self._last_key_time > 0.15:
                 self.preview_enabled = not self.preview_enabled
                 self._last_key_time = now
-                print(f"[Key] Toggle Preview -> {'ON' if self.preview_enabled else 'OFF'}")
+                self.log(f"[Key] Toggle Preview -> {'ON' if self.preview_enabled else 'OFF'}")
 
         elif event.key() == Qt.Key_R:
             if now - self._last_key_time > 0.15:
