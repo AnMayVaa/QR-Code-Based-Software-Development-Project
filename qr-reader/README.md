@@ -1,4 +1,4 @@
-# QR Code Reader wiith MQTT server
+# QR Code Reader Station
 This project tends to be a prototype of QR Code Reader module for Software Development Practice I
 ## Contents
 1. [Installation](#installation)
@@ -15,8 +15,8 @@ Follow these steps to set up the project environment.
 ### Steps
 1. Clone this repository.
 ```bash
-git clone https://github.com/nemoirisgurl/QR-Code-Reader-with-MQTT.git
-cd QR-Code-Reader-with-MQTT
+git clone https://github.com/AnMayVaa/QR-Code-Based-Software-Development-Project.git
+cd qr-reader
 ```
 2. Install and activate python virtual environment.
    * **Windows:**
@@ -83,4 +83,4 @@ or
 ```bash
 python read_qrcode_module/read_qrcode_webcam.py
 ```
-Make sure you run the command on the **QR-Code-Reader-with-MQTT** folder and different terminal from MQTT Broker
+Make sure you run the command on the **qr-reader** folder and different terminal from MQTT Broker

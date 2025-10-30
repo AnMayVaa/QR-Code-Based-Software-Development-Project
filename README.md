@@ -44,16 +44,26 @@ This station is the starting point for all participants. Its primary role is to 
 * *(e.g., How are the codes distributed to visitors? Printed? Emailed?)*
 
 ### 3. Check in/out Station
-* **Folder:** (Please specify folder, e.g., `check-in-app/`)
+* **Folder:** `qr-reader/`
 * **Managed by:** **Noppanart Pisawongnukulkij**
 
 This module consists of the scanners and applications used by staff at the various activity booths to track participant progress.
 Its primary function is to publish MQTT messages with `check: 1` (Check-in) and `check: 0` (Check-out) payloads.
 
-**[--- Nemo: Please add your detailed description of this module here. ---]**
-* *(e.g., What hardware is used? Mobile phones? Laptops with scanners?)*
-* *(e.g., Is it a web app? A mobile app? What technology is it built with?)*
-* *(e.g., Describe the user interface for staff at the station.)*
+These are two variants of QR Code Reader/Scanner.
+
+1.  **Webcam Variant**: Read a participant's QR Code with a webcam.
+2. **2D Barcode Reader**: Read a participant's QR Code with a 2D Barcode Reader.
+
+Both variants' features
+
+* **Validation**: Check in/out Station will only able to read a specific format of QR Code. 
+* **Auto and Manual Check in/out toggle**: Staff can force to manually toggle status to a participant's QR Code in some situations.
+* **Outcome Display**: Participants can see a status of their QR Code on mini TFT screen which is sent via Serial.
+* **Log**: After reading participants' QR Code.
+Their token will be written on log file (token, location, status, epoch timestamp).
+* **MQTT Publishing**: Log file data will be published on topic `openhouse/qrscan` by `qrscan_pub.js`.
+
 
 ### 4. Register Station
 * **Folder:** `registration-app/`
