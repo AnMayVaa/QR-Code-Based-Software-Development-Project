@@ -1,0 +1,25 @@
+{
+  "name": "qr-code-reader-with-mqtt",
+  "version": "1.0.0",
+  "description": "This project tends to be a prototype of QR Code Reader module for Software Development Practice I\r ## Contents\r 1. [Installation](#installation)\r 2. [Running](#running)\r 3. [Footage](#footage)",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nemoirisgurl/QR-Code-Reader-with-MQTT.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nemoirisgurl/QR-Code-Reader-with-MQTT/issues"
+  },
+  "homepage": "https://github.com/nemoirisgurl/QR-Code-Reader-with-MQTT#readme",
+  "dependencies": {
+    "mqtt": "^5.14.1"
+  }
+}
