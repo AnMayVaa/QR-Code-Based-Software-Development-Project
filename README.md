@@ -32,17 +32,40 @@ In our network system, communication operates through an open-source MQTT server
 If you plan to use our system, please remember to update your machine’s IP address in each file within every module.
 
 ### 2. QR Code Generate Station
-* **Folder:** (Please specify folder, e.g., `qr-generator/`)
+* **Folder:** `Qr Code Generate Station/`
 * **Managed by:** **Nakharin Boonkorkua**
 
 This station is the starting point for all participants. Its primary role is to provide each visitor with a unique QR code containing their `token`.
 
 *(This module is responsible for the pre-event setup of generating and distributing the unique QR codes to participants.)*
 
-**[--- Klong: Please add your detailed description of this module here. ---]**
-* *(e.g., Describe the technology used to generate the codes.)*
-* *(e.g., What data is embedded in the QR code? Just the token?)*
-* *(e.g., How are the codes distributed to visitors? Printed? Emailed?)*
+Detailed Module Description — QR Code Generate Station
+
+**What it is?**
+
+A simple station that creates scannable QR images for the event. It takes the event’s internal token string and turns it into a clean, high-contrast QR image that’s ready for print or screen display (no personal data inside the code).
+
+**Tech overview**
+- Runtime / Platform: Python 3.x (works on Windows/Raspberry Pi).
+- QR generation:
+    - qrcode for quick PNG output (auto version/box size, ECC configurable), or
+    - segno when SVG/vector output is needed.
+- Image handling: Pillow for placing margins (quiet zone), resizing to print-friendly DPI, and optional overlay of a small center logo.
+- Batch/automation (if provided in scripts): Basic CLI using argparse for bulk generation from a simple list; outputs PNG (and optionally SVG/PDF sheets if enabled).
+- GUI (optional KIOS flavor): A minimal PyQt-based screen to preview the QR and export as PNG—kept lightweight for kiosk usage; no camera required in this station.
+
+**AI usage (optional enhancement)**
+- Stylized logo/mascot for the QR center: local paint_model (AnimeGAN/Cartoon-style) can transform a supplied logo/avatar before overlaying it into the QR center. This is purely cosmetic; the QR content remains the same.
+    - Guardrails: keep overlay ≤ ~15% of QR area and bump error correction to H to maintain scanability.
+    - Tooling: paint_model → Pillow compose → export PNG.
+
+**Defaults & conventions**
+- QR appearance: black on white, quiet zone ≥ 4 modules, size ~320–512 px for screens or 30–35 mm on print.
+- Content policy: encode only the event token (no PII).
+- Artifacts: per-user PNG files; optional PDF badge sheets if the PDF helper is present.
+
+**Where it fits**
+- This station runs before the event to produce QR images. Other stations (scanner, register, dashboard) just read/verify the token that’s encoded here.
 
 ### 3. Check in/out Station
 * **Folder:** `qr-reader/`
