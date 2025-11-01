@@ -140,6 +140,7 @@ Need a Eclipse Mosquitto to implements the MQTT protocol [ https://mosquitto.org
 
 ### 2. Setup the config file
 in window go to "C:\Program Files\mosquitto\mosquitto.conf"
+
 in linux go to "/etc/mosquitto/mosquitto.conf"
 
 add this config to "mosquitto.conf" file
@@ -191,6 +192,7 @@ sudo systemctl stop mosquitto
 
 ### 5. Check port & kill process
 *server port* broker : 8883 | web sockert : 8081
+
 in window
 ```bash
 netstat -ano | findstr *server port*
@@ -204,6 +206,7 @@ sudo kill -9 *your port*
 
 ### 6. Setup firewall (if your can run mqtt server but it not working)
 *server port* broker : 8883 | web sockert : 8081
+
 in window use this command and stop firewall in window setting
 ```bash
 New-NetFirewallRule -DisplayName "Mosquitto *server port*" -Direction Inbound -LocalPort *server port* -Protocol TCP -Action Allow
