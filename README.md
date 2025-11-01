@@ -6,7 +6,7 @@ The system is built on a modern, decoupled architecture featuring a Node.js back
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 The core of this project is its **fault-tolerant, local-first architecture**. This design ensures that all participant check-ins and registrations are captured 100% of the time, even if the event's internet connection fails or the cloud database is unavailable.
 
@@ -20,15 +20,16 @@ The core of this project is its **fault-tolerant, local-first architecture**. Th
 
 ---
 
-## 🧩 System Modules & Event Stations
+## System Modules & Event Stations
 
 The project is divided into the following components and responsibilities:
 
 ### 1. Network
-* **Folder:** `backend-services/`
 * **Managed by:** **Nathaphat Tesviruch**
 
-**[--- Tonnum: Please add your detailed description of this module here. ---]**
+In our network system, communication operates through an open-source MQTT server, which we run as a local server within the department’s network. The communication protocol code is distributed across each module of the system. You can refer to the README under the section “How to Run Network System” for instructions on how to run the server.
+
+If you plan to use our system, please remember to update your machine’s IP address in each file within every module.
 
 ### 2. QR Code Generate Station
 * **Folder:** (Please specify folder, e.g., `qr-generator/`)
@@ -99,7 +100,7 @@ This component is the "brain" of the entire system, running on the central on-pr
 
 ---
 
-## 🚀 How to Run Admin Dashboard & Registration App
+## How to Run Admin Dashboard & Registration App
 
 To run the complete system, you must start all components.
 
@@ -129,3 +130,86 @@ npm run dev
 ### 3. Run the Event Stations
 * Start the Check in/out Station application.
 * Begin scanning QR codes. Data should now flow through the entire system.
+
+---
+
+## How to Run Network System
+
+### 1. Install mosquitto
+Need a Eclipse Mosquitto to implements the MQTT protocol [ https://mosquitto.org/download/ ]
+
+### 2. Setup the config file
+in window go to "C:\Program Files\mosquitto\mosquitto.conf"
+in linux go to "/etc/mosquitto/mosquitto.conf"
+
+add this config to "mosquitto.conf" file
+```bash
+# Broker
+listener 8883 0.0.0.0
+protocol mqtt
+# cafile /path/to/ca.crt
+# certfile /path/to/server.crt
+# keyfile /path/to/server.key
+# require_certificate true
+
+# WebSocket
+listener 8081 0.0.0.0
+protocol websockets
+# cafile /path/to/ca.crt
+# certfile /path/to/server.crt
+# keyfile /path/to/server.key
+# require_certificate true
+
+# No login required
+allow_anonymous true
+```
+
+### 3. Run MQTT Server
+in window
+```bash
+cd "C:\Program Files\mosquitto\"
+mosquitto -c "C:\Program Files\mosquitto\mosquitto.conf" -v
+```
+in linux
+```bash
+sudo systemctl enable mosquitto
+sudo systemctl start mosquitto
+sudo systemctl status mosquitto
+# if not work you can run this command
+mosquitto -c /etc/mosquitto/mosquitto.conf -v
+```
+
+### 4. Stop MQTT Server
+in window
+```bash
+net stop mosquitto
+```
+in linux
+```bash
+sudo systemctl stop mosquitto
+```
+
+### 5. Check port & kill process
+*server port* broker : 8883 | web sockert : 8081
+in window
+```bash
+netstat -ano | findstr *server port*
+taskkill /PID *your port* /F
+```
+in linux
+```bash
+sudo netstat -tulnp | grep *server port*
+sudo kill -9 *your port*
+```
+
+### 6. Setup firewall (if your can run mqtt server but it not working)
+*server port* broker : 8883 | web sockert : 8081
+in window use this command and stop firewall in window setting
+```bash
+New-NetFirewallRule -DisplayName "Mosquitto *server port*" -Direction Inbound -LocalPort *server port* -Protocol TCP -Action Allow
+```
+in linux
+```bash
+sudo ufw allow *server port*/tcp
+sudo ufw reload
+```
