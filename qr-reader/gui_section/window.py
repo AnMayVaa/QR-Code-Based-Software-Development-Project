@@ -46,7 +46,7 @@ class MainWindow(QWidget):
 
         # UI parts
         self.toolbar = build_toolbar(self)
-        self.lblTitle = QLabel("พร้อมใช้งาน — กรุณาสแกนโค้ดด้วยเครื่องสแกนเนอร์ของคุณ")
+        self.lblTitle = QLabel("พร้อมใช้งาน")
         self.lblStatus = QLabel("กำลังรอการสแกน…")  # idle text
         self.lblToken = QLabel("")  # last scanned token
         self.lblTitle.setProperty("class", "title")
