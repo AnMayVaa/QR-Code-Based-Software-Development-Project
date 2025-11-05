@@ -10,6 +10,7 @@ timezone = pytz.timezone("Asia/Bangkok")
 time_format = "%H:%M"
 
 
+
 class ReaderLogic:
     def __init__(self, location, cooldown, checkin_checkout_duration):
         self.location = location

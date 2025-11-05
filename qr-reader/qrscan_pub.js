@@ -1,7 +1,7 @@
 const fs = require('fs');
 const mqtt = require('mqtt');
 
-const client = mqtt.connect('mqtt://192.168.106.166:8883');
+const client = mqtt.connect('mqtt://192.168.106.151:8883');
 //const client = mqtt.connect('mqtt://broker.hivemq.com');
 
 const PUBLISHER_TYPE = "json"; // txt, json
