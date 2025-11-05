@@ -1,17 +1,16 @@
 import os
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QFontDatabase, QKeySequence, QIcon
-from PyQt5.QtWidgets import (
-    QWidget,
-    QLabel,
-    QGridLayout,
-    QVBoxLayout,
-    QHBoxLayout,
-    QToolBar,
-    QAction,
-    QLineEdit,
-    QShortcut,
-)
+from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout, QVBoxLayout, QShortcut, QFrame
+
+
+def hline():
+    ln = QFrame()
+    ln.setFrameShape(QFrame.HLine)
+    ln.setFrameShadow(QFrame.Sunken)
+    ln.setStyleSheet("color:#d1d5db;")  # subtle divider
+    return ln
+
 
 from gui_section.app_config import (
     DEFAULT_LOCATION,
@@ -41,13 +40,24 @@ class MainWindow(QWidget):
             DEFAULT_LOCATION, SCAN_COOLDOWN, STAY_DURATION, self
         )
         self.ctrl.status_text.connect(self._set_status)
+        self.ctrl.clear_input.connect(self.on_clear_input)
+        self.ctrl.token_update.connect(self._set_last_token)
+        self._prev_len = 0
 
         # UI parts
         self.toolbar = build_toolbar(self)
         self.lblTitle = QLabel("พร้อมใช้งาน — กรุณาสแกนโค้ดด้วยเครื่องสแกนเนอร์ของคุณ")
-        self.lblStatus = QLabel("กำลังรอการสแกน…")
+        self.lblStatus = QLabel("กำลังรอการสแกน…")  # idle text
+        self.lblToken = QLabel("")  # last scanned token
         self.lblTitle.setProperty("class", "title")
         self.lblStatus.setProperty("class", "status")
+        self.lblToken.setStyleSheet(
+            "font-family: Consolas, 'Cascadia Mono', monospace; color:#6b7280;"
+        )
+        # status reset timer
+        self._status_reset = QTimer(self)
+        self._status_reset.setSingleShot(True)
+        self._status_reset.timeout.connect(self._set_idle_status)
 
         # panels
         self.locationPanel = LocationPanel(
@@ -58,26 +68,35 @@ class MainWindow(QWidget):
             self.on_toggle_file_output, self.on_toggle_clipboard
         )
 
+        self.lblFooter = QLabel(
+            "F11: เต็มหน้าจอ  |  Ctrl+Q: ออก  |  สแกนแล้วจะรีเซ็ตข้อความใน 1 วินาที"
+        )
+        self.lblFooter.setAlignment(Qt.AlignCenter)
+        self.lblFooter.setStyleSheet("color:#6b7280; padding:6px 0;")
+
         # hidden scanner input
         self.scEdit = HiddenScannerInput(self.on_text_edited)
 
         # layout
-        right = QVBoxLayout()
-        right.addWidget(self.locationPanel)
-        right.addWidget(self.modePanel)
-        right.addWidget(self.outputPanel)
-        right.addStretch(1)
-
-        root = QGridLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(14, 10, 14, 10)
-        root.setHorizontalSpacing(16)
-        root.setVerticalSpacing(10)
-        root.addWidget(self.toolbar, 0, 0, 1, 2)
-        root.addWidget(self.lblTitle, 1, 0, 1, 2)
-        root.addWidget(self.lblStatus, 2, 0, 1, 2)
-        root.addLayout(right, 3, 1)
-        root.addWidget(self.scEdit, 4, 0, 1, 2)
+        root.setSpacing(8)
 
+        root.addWidget(self.toolbar)
+        root.addWidget(self.lblTitle)
+        root.addWidget(hline())
+        root.addWidget(self.lblStatus)
+        root.addWidget(self.lblToken)
+        root.addWidget(hline())
+        root.addWidget(self.locationPanel)
+        root.addWidget(hline())
+        root.addWidget(self.modePanel)
+        root.addWidget(hline())
+        root.addWidget(self.outputPanel)
+        root.addStretch(1)
+        root.addWidget(hline())
+        root.addWidget(self.lblFooter)
+        root.addWidget(self.scEdit)  # hidden field stays at the very bottom
         # focus & shortcuts
         self.setFocusPolicy(Qt.StrongFocus)
         self.activateWindow()
@@ -117,7 +136,7 @@ class MainWindow(QWidget):
             QGroupBox {{ font-weight:600; border:1px solid #dde3f0; border-radius:8px; margin-top:10px; padding:8px; }}
             QGroupBox::title {{ subcontrol-origin: margin; left:10px; padding:0 5px; }}
             QLabel[class="title"] {{ font-weight:700; font-size:{base_pt+4}px; }}
-            QLabel[class="status"] {{ font-size:{base_pt+2}px; color:#0f6b3c; }}
+            QLabel[class="status"] {{ font-size:{base_pt+2}px;}}
             QPushButton {{ background:#2563eb; color:white; border:none; border-radius:8px; padding:6px 14px; }}
             QPushButton:hover {{ background:#1d4ed8; }}
             QLineEdit {{ background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; padding:4px; }}
@@ -131,6 +150,11 @@ class MainWindow(QWidget):
     def on_text_edited(self, text: str):
         self.ctrl.on_text_delta(text, self._prev_len)
         self._prev_len = len(text)
+
+    def on_clear_input(self):
+        self.scEdit.clear()
+        self._prev_len = 0
+        self.scEdit.setFocus(Qt.OtherFocusReason)
 
     def on_timer(self):
         self.ctrl.poll_timeout_finalize(self.isActiveWindow())
@@ -164,11 +188,24 @@ class MainWindow(QWidget):
             return
         super().keyPressEvent(e)
 
+    def _set_last_token(self, token: str):
+        self.lblToken.setText(f"โทเคน: {token}" if token else "")
+
+    def _set_idle_status(self):
+        # neutral color + idle text
+        self.lblStatus.setStyleSheet("color:#1c1e23;")
+        self.lblStatus.setText("กำลังรอการสแกน…")
+        self.scEdit.setFocus(Qt.OtherFocusReason)
+
     def _set_status(self, text: str, ok: bool, error: bool):
         if error:
-            self.lblStatus.setStyleSheet(self.lblStatus.styleSheet() + "color:#b91c1c;")
+            self.lblStatus.setStyleSheet("color:#b91c1c;")
+            self._status_reset.stop()  # keep error on screen
         elif ok:
-            self.lblStatus.setStyleSheet(self.lblStatus.styleSheet() + "color:#0f6b3c;")
+            self.lblStatus.setStyleSheet("color:#0f6b3c;")
+            self._status_reset.start(1000)  # auto-reset after 1 seconds
         else:
-            self.lblStatus.setStyleSheet(self.lblStatus.styleSheet() + "color:#1c1e23;")
+            self.lblStatus.setStyleSheet("color:#1c1e23;")
+            self._status_reset.stop()
+
         self.lblStatus.setText(text)

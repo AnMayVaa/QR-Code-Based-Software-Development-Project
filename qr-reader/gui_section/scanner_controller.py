@@ -18,6 +18,8 @@ from read_qrcode_module.qr_reader import QRData
 
 class ScannerController(QObject):
     status_text = pyqtSignal(str, bool, bool)  # text, ok, error
+    clear_input = pyqtSignal()
+    token_update = pyqtSignal(str)
 
     def __init__(
         self, location: str, scan_cooldown: int, stay_duration: int, parent=None
@@ -36,25 +38,28 @@ class ScannerController(QObject):
 
         self.buffer = ""
         self._last_time = time.time()
+        self._last_location_change = time.time()
 
         self.output_path = None  # optional file
         self.clipboard_enabled = False
 
     def set_location(self, new_loc: str):
-        old_hist = self.reader.scan_history
-        self.location = new_loc.strip() or self.location
-        self.reader = ReaderLogic(
-            self.location, self._scan_cooldown, self._stay_duration
-        )
+        new_loc = (new_loc or "").strip()
+        if not new_loc:
+            return
+        # update in-place (don’t rebuild ReaderLogic)
+        self.location = new_loc
+        if getattr(self, "reader", None):
+            self.reader.location = new_loc
 
-        self.reader.scan_history = old_hist
-        self.status_text.emit(f"ตั้งค่าสถานที่เป็น “{self.location}” แล้ว", True, False)
+        # emit the message right here (so MainWindow sees it immediately)
+        self.status_text.emit(f'ตั้งค่าสถานที่เป็น "{new_loc}" แล้ว', True, False)
 
     def set_forced_mode(self, mode):  # None, 1, 0
         self.forced_mode = mode
 
     # ---- buffer handling from GUI ----
-    def on_text_delta(self, new_text: str, old_len: int):
+    def on_text_delta(self, new_text: str, old_len: int = 0):
         # ต่อท้ายเฉพาะตัวอักษรที่เพิ่มจากความยาวเดิม
         if old_len <= len(new_text):
             self.buffer += new_text[old_len:]
@@ -78,6 +83,7 @@ class ScannerController(QObject):
     # ---- core finalize ----
     def _finalize_payload(self, payload: str):
         self.buffer = ""
+        self.clear_input.emit()
         if not payload or len(payload) < SC_MINLEN:
             return
 
@@ -103,12 +109,21 @@ class ScannerController(QObject):
         # persist log
         if status != -1 and result.get("qr_data"):
             try:
-                QRData(token, self.location, status, int(time.time())).write_data()
+                q = QRData(token, self.location, status, int(time.time()))
+                if status == 1 and result.get("replace_last"):
+                    q.write_replace_last_checkin()  # <— replace with new epoch
+                else:
+                    q.write_data()  # <— default append
             except Exception:
                 try:
                     with open("qr_log.json", "w", encoding="utf-8") as f:
                         f.write("[]")
-                    QRData(token, self.location, status, int(time.time())).write_data()
+                    # retry once
+                    q = QRData(token, self.location, status, int(time.time()))
+                    if status == 1 and result.get("replace_last"):
+                        q.write_replace_last_checkin()
+                    else:
+                        q.write_data()
                 except Exception:
                     pass
 
