@@ -47,10 +47,6 @@ node qrscan_pub.js
 ## Running
 Use this command
 ```bash
-python read_qrcode_module/read_qrcode_bcode.py
-```
-or
-```bash
-python read_qrcode_module/read_qrcode_webcam.py
+python main.py
 ```
 Make sure you run the command on the **qr-reader** folder and different terminal from MQTT Broker

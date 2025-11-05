@@ -1,53 +1,75 @@
-# --- replace the whole ReaderLogic class with this version ---
-
+# reader_logic.py
 import time
 import json
 import os
-import pytz
-from datetime import datetime
+from typing import Dict, Any
 
-timezone = pytz.timezone("Asia/Bangkok")
-time_format = "%H:%M"
+QR_LOG = "qr_log.json"
 
 
 class ReaderLogic:
-    def __init__(self, location, cooldown, checkin_checkout_duration):
+    """
+    Stateless-ish core: given (token, current station, timers) decide outcome.
+    Keeps a small in-memory map of open check-ins so we don't scan the whole log each time.
+    """
+
+    def __init__(self, location: str, cooldown: int, checkin_checkout_duration: int):
         self.location = location
         self.cooldown = cooldown
         self.checkin_checkout_duration = checkin_checkout_duration
-        self.qr_log = "qr_log.json"
-        # token -> {"ts": last_checkin_epoch, "loc": last_location}
-        self.scan_history = self.load_data()
+        # token -> {"ts": last_checkin_epoch, "loc": last_location} for OPEN sessions only
+        self.scan_history: Dict[str, Dict[str, Any]] = self._load_open_sessions()
 
-    def load_data(self):
-        """Load last known OPEN check-ins (check==1), keeping their location."""
-        if not os.path.exists(self.qr_log) or os.path.getsize(self.qr_log) == 0:
-            print("QR Log created")
+    # ---------- persistence helpers ----------
+
+    def _load_open_sessions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Walk the tail of qr_log.json (up to 800) newest->oldest.
+        For each token, take the *most recent* record:
+          - if status==1 => user is currently OPEN at that location
+          - if status==0 => user is currently CLOSED (skip)
+        """
+        if not os.path.exists(QR_LOG) or os.path.getsize(QR_LOG) == 0:
             return {}
         try:
-            with open(self.qr_log, "r", encoding="UTF-8") as log_file:
-                history = {}
-                all_logs = json.load(log_file)[-800:]
-                # take the newest OPEN entry per token
-                for log in reversed(all_logs):
-                    token = log.get("token")
-                    ts = log.get("epoch")
-                    loc = log.get("location")
-                    if token and ts and token not in history:
-                        if log.get("check") == 1:
-                            history[token] = {"ts": ts, "loc": loc}
-        except Exception as e:
-            print(f"Log file error: {e}")
+            with open(QR_LOG, "r", encoding="utf-8") as f:
+                all_logs = json.load(f)
+        except Exception:
             return {}
+
+        history: Dict[str, Dict[str, Any]] = {}
+        for row in reversed(all_logs[-800:]):
+            token = row.get("token")
+            if not token or token in history:
+                continue
+            if row.get("status") == 1:
+                history[token] = {
+                    "ts": int(row.get("timestamp", 0)),
+                    "loc": row.get("location"),
+                }
+            # if latest is status==0, they are closed => do not add
         return history
 
-    def read_qr(self, token):
-        """Enforce: must checkout at previous location before checking in elsewhere."""
+    # ---------- core state machine ----------
+
+    def read_qr(self, token: str) -> Dict[str, Any]:
+        """
+        One scan decides:
+          - New token  -> CHECK-IN (status=1)
+          - Same token ->
+              * if different station     : error (must checkout there first)
+              * if dt > stay_duration    : CHECK-OUT (status=0)
+              * if dt <= cooldown        : 'Wait...' error
+              * else                     : RE-CHECK-IN (status=1)
+                                           and set replace_last=True iff dt <= half_duration
+        Returns: dict with keys: status, message, qr_data (when status in {0,1}),
+                                 existed (bool), replace_last (optional bool)
+        """
         now = int(time.time())
         existed = token in self.scan_history
 
-        # brand-new check-in
         if not existed:
+            # First check-in at this station
             self.scan_history[token] = {"ts": now, "loc": self.location}
             return {
                 "status": 1,
@@ -56,25 +78,22 @@ class ReaderLogic:
                 "existed": False,
             }
 
-        # someone already checked in
         prev = self.scan_history[token]
-        prev_ts, prev_loc = prev["ts"], prev["loc"]
-
-        # (NEW RULE) different booth -> block until checkout at previous booth
+        prev_ts, prev_loc = int(prev["ts"]), prev["loc"]
         if prev_loc != self.location:
             return {
                 "status": -1,
                 "message": f"Already checked in at {prev_loc}. Please checkout there first.",
                 "qr_data": "",
                 "existed": True,
-                "prev_location": prev_loc,
             }
 
-        # same booth logic as before
         dt = now - prev_ts
+        stay = int(self.checkin_checkout_duration)
+        half = stay // 2
 
-        # eligible to checkout (duration elapsed)
-        if dt > self.checkin_checkout_duration:
+        # matured -> checkout automatically
+        if dt > stay:
             self.scan_history.pop(token, None)
             return {
                 "status": 0,
@@ -83,147 +102,59 @@ class ReaderLogic:
                 "existed": True,
             }
 
-        # too soon to checkout (first half of window)
-        remain = self.checkin_checkout_duration - dt
-        if 0 < remain <= self.checkin_checkout_duration / 2:
-            next_checkout_epoch = prev_ts + self.checkin_checkout_duration
-            next_checkout_str = datetime.fromtimestamp(
-                next_checkout_epoch, tz=timezone
-            ).strftime(time_format)
-            return {
-                "status": -1,
-                "message": "Too soon to checkout",
-                "qr_data": "",
-                "existed": True,
-                "next_checkout_str": next_checkout_str,
-            }
+        # rate-limit noise
+        if dt <= int(self.cooldown):
+            return {"status": -1, "message": "Wait...", "qr_data": "", "existed": True}
 
-        # cooldown guard
-        if dt <= self.cooldown:
-            return {
-                "status": -1,
-                "message": "Wait...",
-                "qr_data": "",
-                "existed": True,
-            }
-
-        # re-check in (same booth) refresh timestamp
+        # still within stay window -> treat as re-check-in
+        # refresh epoch and (optionally) request JSON replacement
         self.scan_history[token] = {"ts": now, "loc": self.location}
-        return {
+        result = {
             "status": 1,
             "message": "Rechecked in",
             "qr_data": f"{token},{self.location},1,{now}",
             "existed": True,
         }
-
-    def set_location(self, new_loc: str):
-        old_hist = self.reader.scan_history
-        self.location = new_loc.strip() or self.location
-        # FIX: don't read fields from ReaderLogic; use our own copies
-        self.reader = ReaderLogic(
-            self.location, self._scan_cooldown, self._stay_duration
-        )
-        self.reader.scan_history = old_hist
-        self.status_text.emit(f"ตั้งค่าสถานที่เป็น “{self.location}” แล้ว", True, False)
-
-    @staticmethod
-    def poll_mode_from_serial(ser, current_mode):
-        try:
-            updated_mode = current_mode
-            while getattr(ser, "in_waiting", 0):
-                raw = ser.readline()
-                try:
-                    line = raw.decode("utf-8", errors="ignore").strip()
-                except Exception:
-                    continue
-                if line.startswith("MODE:"):
-                    val = line[5:].strip()
-                    if val in ("0", "1"):
-                        updated_mode = int(val)
-                        print(f"[MODE] Received mode from ESP32 => {updated_mode}")
-            return updated_mode
-        except Exception:
-            return current_mode
-
-    @staticmethod
-    def apply_forced_mode(qr_reader, token, result, forced_mode):
-        """Respect the cross-location rule in forced operations, too."""
-        try:
-            now_ts = int(time.time())
-            existed = token in qr_reader.scan_history
-            if existed:
-                prev = qr_reader.scan_history[token]
-                prev_loc = prev["loc"]
-            else:
-                prev_loc = None
-
-            # Force CHECK-OUT only at the same booth as the open session
-            if forced_mode == 0:
-                if existed and prev_loc == qr_reader.location:
-                    qr_reader.scan_history.pop(token, None)
-                    result.update(status=0, message="Checked out")
-                else:
-                    # enforce “checkout at previous location”
-                    where = prev_loc or "unknown"
-                    result.update(status=-1, message=f"Checkout at {where} booth.")
-                return result
-
-            # Force CHECK-IN blocked if user is open at a different booth
-            if forced_mode == 1:
-                if existed and prev_loc and prev_loc != qr_reader.location:
-                    result.update(
-                        status=-1,
-                        message=f"Already checked in at {prev_loc}. Checkout there first.",
-                    )
-                else:
-                    qr_reader.scan_history[token] = {
-                        "ts": now_ts,
-                        "loc": qr_reader.location,
-                    }
-                    result.update(
-                        status=1, message=("Rechecked in" if existed else "Checked in")
-                    )
-                return result
-
-            return result
-        except Exception:
-            return result
+        if dt <= half:
+            # Tell the caller to replace the *last* check-in row for this token
+            result["replace_last"] = True
+        return result
 
 
-def poll_mode_from_serial(ser, current_mode):
-    return ReaderLogic.poll_mode_from_serial(ser, current_mode)
+# ---------- Forced mode helpers (controller calls the module-level function) ----------
 
 
-def apply_forced_mode(qr_reader, token, result, forced_mode):
+def apply_forced_mode(
+    qr_reader: ReaderLogic, token: str, result: Dict[str, Any], forced_mode: int
+) -> Dict[str, Any]:
+    """
+    forced_mode == 0 : FORCE CHECK-OUT (only at same station as open session)
+    forced_mode == 1 : FORCE CHECK-IN  (blocked if open elsewhere)
+      - if forcing check-in while within first half of stay -> mark replace_last=True
+    """
     try:
         now_ts = int(time.time())
         existed = token in qr_reader.scan_history
         prev_loc = qr_reader.scan_history[token]["loc"] if existed else None
 
-        if forced_mode == 0:  # FORCE CHECK-OUT
+        if forced_mode == 0:
             if not existed:
-                # never checked in anywhere
                 result.update(
                     status=-1,
                     message=f"You haven't checked in at {qr_reader.location}. Please check in here first.",
                 )
                 return result
-
             if prev_loc != qr_reader.location:
-                # checked in elsewhere
                 result.update(
                     status=-1,
                     message=f"You're already checked in at {prev_loc}. Please checkout there first.",
                 )
                 return result
-
-            # OK to checkout here
             qr_reader.scan_history.pop(token, None)
             result.update(status=0, message="Checked out")
             return result
 
-        if forced_mode == 1:  # FORCE CHECK-IN
-            # still block if open somewhere else
+        if forced_mode == 1:
             if existed and prev_loc and prev_loc != qr_reader.location:
                 result.update(
                     status=-1,
@@ -231,10 +162,19 @@ def apply_forced_mode(qr_reader, token, result, forced_mode):
                 )
                 return result
 
+            # decide replace_last on half-window, if there was an earlier check-in here
+            replace = False
+            if existed and prev_loc == qr_reader.location:
+                prev_ts = int(qr_reader.scan_history[token]["ts"])
+                if now_ts - prev_ts <= int(qr_reader.checkin_checkout_duration) // 2:
+                    replace = True
+
             qr_reader.scan_history[token] = {"ts": now_ts, "loc": qr_reader.location}
             result.update(
                 status=1, message=("Rechecked in" if existed else "Checked in")
             )
+            if replace:
+                result["replace_last"] = True
             return result
 
         return result
