@@ -31,7 +31,7 @@ source venv/bin/activate
 ```
 
 ```bash
-sudo apt install libzbar0 libzbar-dev qtbase5-dev
+sudo apt install qtbase5-dev
 sudo apt-get install -y fonts-noto fonts-noto-unhinted fonts-thai-tlwg
 ```
 3.  Install the required Python packages:
