@@ -34,6 +34,7 @@ source venv/bin/activate
 sudo apt install libzbar0
 sudo apt install libzbar-dev
 sudo apt install -y python3-evdev
+sudo apt-get install -y fonts-noto fonts-noto-unhinted fonts-thai-tlwg
 ```
 ```bash
 
