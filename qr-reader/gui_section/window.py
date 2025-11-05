@@ -92,6 +92,8 @@ class MainWindow(QWidget):
         self.timer.timeout.connect(self.on_timer)
         self.timer.start()
 
+        self._prev_len = 0
+
         self._fullscreen = False
 
     # ---------- styling ----------
@@ -104,11 +106,9 @@ class MainWindow(QWidget):
                 except:
                     pass
         screen = self.screen().geometry() if self.screen() else self.geometry()
-        base_pt = (
-            14
-            if not screen.width()
-            else max(11, min(18, int(min(screen.width(), screen.height()) / 70)))
-        )
+        w = screen.width() if hasattr(screen, "width") else 0
+        h = screen.height() if hasattr(screen, "height") else 0
+        base_pt = 16 if not w else max(13, min(22, int(min(w, h) / 60)))
         font = QFont(preferred[0], base_pt)
         self.setFont(font)
         self.setStyleSheet(
@@ -129,7 +129,8 @@ class MainWindow(QWidget):
 
     # ---------- event wiring ----------
     def on_text_edited(self, text: str):
-        self.ctrl.on_text_delta(text, 0)
+        self.ctrl.on_text_delta(text, self._prev_len)
+        self._prev_len = len(text)
 
     def on_timer(self):
         self.ctrl.poll_timeout_finalize(self.isActiveWindow())

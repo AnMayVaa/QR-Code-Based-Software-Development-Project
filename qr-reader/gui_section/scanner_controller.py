@@ -24,7 +24,13 @@ class ScannerController(QObject):
     ):
         super().__init__(parent)
         self.location = location
-        self.reader = ReaderLogic(self.location, scan_cooldown, stay_duration)
+        # NEW: keep our own copies
+        self._scan_cooldown = scan_cooldown
+        self._stay_duration = stay_duration
+
+        self.reader = ReaderLogic(
+            self.location, self._scan_cooldown, self._stay_duration
+        )
         self.forced_mode = None  # None / 1 / 0
         self.last_scan_ts = 0.0
 
@@ -38,8 +44,9 @@ class ScannerController(QObject):
         old_hist = self.reader.scan_history
         self.location = new_loc.strip() or self.location
         self.reader = ReaderLogic(
-            self.location, self.reader.scan_cooldown, self.reader.stay_duration
+            self.location, self._scan_cooldown, self._stay_duration
         )
+
         self.reader.scan_history = old_hist
         self.status_text.emit(f"ตั้งค่าสถานที่เป็น “{self.location}” แล้ว", True, False)
 
@@ -48,15 +55,18 @@ class ScannerController(QObject):
 
     # ---- buffer handling from GUI ----
     def on_text_delta(self, new_text: str, old_len: int):
-        # Append only new delta
-        if len(new_text) > len(self.buffer):
-            self.buffer += new_text[len(self.buffer) :]
+        # ต่อท้ายเฉพาะตัวอักษรที่เพิ่มจากความยาวเดิม
+        if old_len <= len(new_text):
+            self.buffer += new_text[old_len:]
         else:
+            # ข้อความถูกล้าง/สั้นลง (เช่นผู้ใช้กดลบ) — เริ่มใหม่จากที่มี
             self.buffer = new_text
-        self._last_time = time.time()
 
+        self._last_time = time.time()
+        # ถ้ามีตัวจบ (CR/LF/CRLF) ให้ finalize ทันที
         if TERMINATOR and self.buffer.endswith(TERMINATOR):
-            self._finalize_payload(self.buffer.strip())
+            payload = self.buffer[: -len(TERMINATOR)] if TERMINATOR else self.buffer
+            self._finalize_payload(payload.strip())
 
     def poll_timeout_finalize(self, is_active_window: bool):
         if not self.buffer:

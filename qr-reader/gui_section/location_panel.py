@@ -6,8 +6,9 @@ class LocationPanel(QGroupBox):
         super().__init__("จุดบริการ / สถานที่")
         self.on_set = on_set
         self.cmb = QComboBox()
-        self.cmb.setEditable(True)
+        self.cmb.setEditable(False)
         self.cmb.addItems(booths)
+        self.cmb.setInsertPolicy(QComboBox.NoInsert)
         self.cmb.setCurrentText(current_loc)
         btn = QPushButton("ตั้งค่าสถานที่")
         btn.clicked.connect(self._set)

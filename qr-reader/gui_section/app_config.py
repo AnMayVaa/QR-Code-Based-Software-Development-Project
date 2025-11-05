@@ -10,7 +10,7 @@ STAY_DURATION = cfg.getint("Device", "StayDuration", fallback=600)
 
 
 def booth_list():
-    raw = cfg.get("BoothList", "Names", fallback="").strip()
+    raw = cfg.get("BoothList", "Locations", fallback="").strip()
     items = [s.strip() for s in raw.split(",") if s.strip()] if raw else []
     if DEFAULT_LOCATION not in items:
         items = [DEFAULT_LOCATION] + items

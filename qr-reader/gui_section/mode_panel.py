@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QGroupBox, QVBoxLayout, QRadioButton
-
+from PyQt5.QtCore import Qt
 
 class ModePanel(QGroupBox):
     def __init__(self, on_mode_change):
@@ -11,6 +11,7 @@ class ModePanel(QGroupBox):
         self.rbAuto.setChecked(True)
         for rb in (self.rbAuto, self.rbIn, self.rbOut):
             rb.toggled.connect(self._changed)
+            rb.setFocusPolicy(Qt.NoFocus)
         lay = QVBoxLayout(self)
         for w in (self.rbAuto, self.rbIn, self.rbOut):
             lay.addWidget(w)

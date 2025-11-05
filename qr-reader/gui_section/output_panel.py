@@ -1,4 +1,5 @@
 from PyQt5.QtWidgets import QGroupBox, QVBoxLayout, QCheckBox, QLabel, QFileDialog
+from PyQt5.QtCore import Qt
 
 
 class OutputPanel(QGroupBox):

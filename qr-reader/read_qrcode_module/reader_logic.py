@@ -10,7 +10,6 @@ timezone = pytz.timezone("Asia/Bangkok")
 time_format = "%H:%M"
 
 
-
 class ReaderLogic:
     def __init__(self, location, cooldown, checkin_checkout_duration):
         self.location = location
@@ -116,6 +115,16 @@ class ReaderLogic:
             "qr_data": f"{token},{self.location},1,{now}",
             "existed": True,
         }
+
+    def set_location(self, new_loc: str):
+        old_hist = self.reader.scan_history
+        self.location = new_loc.strip() or self.location
+        # FIX: don't read fields from ReaderLogic; use our own copies
+        self.reader = ReaderLogic(
+            self.location, self._scan_cooldown, self._stay_duration
+        )
+        self.reader.scan_history = old_hist
+        self.status_text.emit(f"ตั้งค่าสถานที่เป็น “{self.location}” แล้ว", True, False)
 
     @staticmethod
     def poll_mode_from_serial(ser, current_mode):
