@@ -10,6 +10,7 @@ from gui_section.app_config import (
     RATE_LIMIT_S,
     TZ,
     TIME_FMT_HMS,
+    booth_list,
 )
 from gui_section.localization import to_thai_message
 from read_qrcode_module.reader_logic import ReaderLogic, apply_forced_mode
@@ -20,11 +21,14 @@ class ScannerController(QObject):
     status_text = pyqtSignal(str, bool, bool)  # text, ok, error
     clear_input = pyqtSignal()
     token_update = pyqtSignal(str)
+    location_changed = pyqtSignal(str)
+    mode_changed = pyqtSignal(object)
 
     def __init__(
         self, location: str, scan_cooldown: int, stay_duration: int, parent=None
     ):
         super().__init__(parent)
+        self._booths = booth_list()[:] or [location]
         self.location = location
         # NEW: keep our own copies
         self._scan_cooldown = scan_cooldown
@@ -43,17 +47,43 @@ class ScannerController(QObject):
         self.output_path = None  # optional file
         self.clipboard_enabled = False
 
+    def _index_of_loc(self, loc: str) -> int:
+        try:
+            return self._booths.index(loc)
+        except ValueError:
+            return -1
+
+    def _set_location_index(self, idx: int):
+        if not self._booths:
+            return
+        idx %= len(self._booths)
+        new_loc = self._booths[idx]
+        # reuse your normal setter so it emits the green status
+        self.set_location(new_loc)
+
+    def _cycle_location(self, step: int = 1):
+        if not self._booths:
+            return
+        i = self._index_of_loc(self.location)
+        if i == -1:
+            # current location not in list → add and select it
+            self._booths.append(self.location)
+            i = len(self._booths) - 1
+        self._set_location_index(i + step)
+
+    def submit_text(self, text: str):
+        self._finalize_payload((text or "").strip())
+
     def set_location(self, new_loc: str):
         new_loc = (new_loc or "").strip()
         if not new_loc:
             return
-        # update in-place (don’t rebuild ReaderLogic)
         self.location = new_loc
         if getattr(self, "reader", None):
             self.reader.location = new_loc
 
-        # emit the message right here (so MainWindow sees it immediately)
         self.status_text.emit(f'ตั้งค่าสถานที่เป็น "{new_loc}" แล้ว', True, False)
+        self.location_changed.emit(new_loc)  # ← tell UI to update dropdown
 
     def set_forced_mode(self, mode):  # None, 1, 0
         self.forced_mode = mode
@@ -81,22 +111,51 @@ class ScannerController(QObject):
                 self._finalize_payload(self.buffer.strip())
 
     # ---- core finalize ----
+
     def _finalize_payload(self, payload: str):
+        # always clear the hidden field / buffer
         self.buffer = ""
         self.clear_input.emit()
+        toggle = payload.upper().strip()
+        if toggle == "LOC:TOGGLE":
+            self._cycle_location(1)
+            return
+        elif toggle == "MODE:TOGGLE":
+            self._cycle_mode()
+            return
+
+        payload = (payload or "").strip()
+        if not payload:
+            return
+
+        # 1) SPECIAL COMMANDS: LOC:/STN:  (bypass minlen/ratelimit/regex)
+        up = payload.upper()
+        if up.startswith("LOC:") or up.startswith("STN:"):
+            new_loc = payload.split(":", 1)[1].strip()
+            if new_loc:
+                self.set_location(new_loc)  # emits green status immediately
+            return
+
+        # 2) Too short? (normal scans only)
         if not payload or len(payload) < SC_MINLEN:
             return
 
+        # 3) Rate limit (normal scans only)
         now = time.time()
         if now - self.last_scan_ts < RATE_LIMIT_S:
             return
         self.last_scan_ts = now
 
-        token = payload.strip()
+        # 4) Token validation
+        token = payload.strip()  # your scanners feed a raw 22-char token
         if not TOKEN_RE.match(token):
+            self.token_update.emit("")  # clear token line for bad input
             self.status_text.emit(f"ข้าม: รูปแบบโทเคนไม่ถูกต้อง → {token!r}", False, True)
             return
+        else:
+            self.token_update.emit(token)
 
+        # 5) Reader logic (same as before)
         result = self.reader.read_qr(token)
         fm = 1 if self.forced_mode == 1 else 0 if self.forced_mode == 0 else None
         if fm is not None:
@@ -106,19 +165,18 @@ class ScannerController(QObject):
         thai = to_thai_message(result, self.location)
         now_str = datetime.now(TZ).strftime(TIME_FMT_HMS)
 
-        # persist log
+        # 6) Persist log
         if status != -1 and result.get("qr_data"):
             try:
                 q = QRData(token, self.location, status, int(time.time()))
                 if status == 1 and result.get("replace_last"):
-                    q.write_replace_last_checkin()  # <— replace with new epoch
+                    q.write_replace_last_checkin()
                 else:
-                    q.write_data()  # <— default append
+                    q.write_data()
             except Exception:
                 try:
                     with open("qr_log.json", "w", encoding="utf-8") as f:
                         f.write("[]")
-                    # retry once
                     q = QRData(token, self.location, status, int(time.time()))
                     if status == 1 and result.get("replace_last"):
                         q.write_replace_last_checkin()
@@ -127,16 +185,31 @@ class ScannerController(QObject):
                 except Exception:
                     pass
 
+        # 7) UI status
         self.status_text.emit(f"{thai}  เวลา {now_str}", status in (0, 1), False)
 
+        # 8) Optional external output
         if status in (0, 1):
             line = f"{token},{status},{now_str}"
             if self.clipboard_enabled:
-                # GUI will set clipboard; here just pass text via signal if you prefer
-                pass
+                pass  # GUI handles clipboard, if you decide to emit another signal
             if self.output_path:
                 try:
                     with open(self.output_path, "a", encoding="utf-8") as fp:
                         fp.write(line + "\n")
                 except Exception:
                     self.status_text.emit("ไม่สามารถเขียนไฟล์เอาต์พุตได้", False, True)
+
+    def set_mode(self, mode):
+        self.forced_mode = mode
+        text = {None: "โหมดอัตโนมัติ", 1: "โหมดบังคับเช็คอิน", 0: "โหมดบังคับเช็คเอาท์"}[mode]
+        self.status_text.emit(f"{text}", True, False)  # green, will auto-reset
+        self.mode_changed.emit(mode)  # tell UI to update radios
+
+    def _cycle_mode(self):
+        order = [None, 1, 0]  # Auto → Force In → Force Out → Auto …
+        try:
+            i = order.index(self.forced_mode)
+        except ValueError:
+            i = 0
+        self.set_mode(order[(i + 1) % len(order)])

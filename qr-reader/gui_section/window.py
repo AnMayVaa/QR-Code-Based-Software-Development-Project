@@ -1,7 +1,15 @@
 import os
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QFontDatabase, QKeySequence, QIcon
-from PyQt5.QtWidgets import QWidget, QLabel, QGridLayout, QVBoxLayout, QShortcut, QFrame
+from PyQt5.QtWidgets import (
+    QWidget,
+    QLabel,
+    QGridLayout,
+    QVBoxLayout,
+    QShortcut,
+    QFrame,
+    QInputDialog,
+)
 
 
 def hline():
@@ -42,10 +50,13 @@ class MainWindow(QWidget):
         self.ctrl.status_text.connect(self._set_status)
         self.ctrl.clear_input.connect(self.on_clear_input)
         self.ctrl.token_update.connect(self._set_last_token)
+        self.ctrl.location_changed.connect(self.on_location_changed)
+        self.ctrl.mode_changed.connect(self.on_mode_changed_external)
         self._prev_len = 0
 
         # UI parts
         self.toolbar = build_toolbar(self)
+        self.toolbar.setFocusPolicy(Qt.NoFocus)
         self.lblTitle = QLabel("พร้อมใช้งาน")
         self.lblStatus = QLabel("กำลังรอการสแกน…")  # idle text
         self.lblToken = QLabel("")  # last scanned token
@@ -69,7 +80,7 @@ class MainWindow(QWidget):
         )
 
         self.lblFooter = QLabel(
-            "F11: เต็มหน้าจอ  |  Ctrl+Q: ออก  |  สแกนแล้วจะรีเซ็ตข้อความใน 1 วินาที"
+            "F11: เต็มหน้าจอ  |  Ctrl+Q: ออก  |  สแกนแล้วจะรีเซ็ตข้อความใน 2 วินาที"
         )
         self.lblFooter.setAlignment(Qt.AlignCenter)
         self.lblFooter.setStyleSheet("color:#6b7280; padding:6px 0;")
@@ -146,6 +157,19 @@ class MainWindow(QWidget):
         """
         )
 
+    def on_location_changed(self, new_loc: str):
+        # update the dropdown UI when location changes via keyboard/QR
+        self.locationPanel.set_current_location(new_loc)
+
+    def prompt_manual_input(self):
+        text, ok = QInputDialog.getText(
+            self,
+            "พิมพ์โทเคน/คำสั่ง",
+            "พิมพ์โทเคน 22 ตัว หรือคำสั่งเปลี่ยนสถานที่ด้วย LOC:TOGGLE",
+        )
+        if ok and text.strip():
+            self.ctrl.submit_text(text.strip())
+
     # ---------- event wiring ----------
     def on_text_edited(self, text: str):
         self.ctrl.on_text_delta(text, self._prev_len)
@@ -165,6 +189,12 @@ class MainWindow(QWidget):
 
     def on_mode_changed(self, mode):
         self.ctrl.set_forced_mode(mode)
+
+    def on_mode_changed_external(self, mode):
+        # Update radios when a MODE:* QR is scanned/typed
+        self.modePanel.set_mode(mode)
+        # keep focus on scanner
+        self.scEdit.setFocus(Qt.OtherFocusReason)
 
     def on_toggle_file_output(self, path_or_none: str):
         self.ctrl.output_path = path_or_none
@@ -186,26 +216,35 @@ class MainWindow(QWidget):
         ):
             self.toggle_fullscreen(not self._fullscreen)
             return
+        if e.key() == Qt.Key_F2:
+            self.prompt_manual_input()
+            return
         super().keyPressEvent(e)
 
     def _set_last_token(self, token: str):
         self.lblToken.setText(f"โทเคน: {token}" if token else "")
 
     def _set_idle_status(self):
-        # neutral color + idle text
         self.lblStatus.setStyleSheet("color:#1c1e23;")
         self.lblStatus.setText("กำลังรอการสแกน…")
+        self.lblToken.setText("")
         self.scEdit.setFocus(Qt.OtherFocusReason)
+        QTimer.singleShot(
+            50, lambda: self.scEdit.setFocus(Qt.OtherFocusReason)
+        )  # ⟵ add
 
     def _set_status(self, text: str, ok: bool, error: bool):
         if error:
             self.lblStatus.setStyleSheet("color:#b91c1c;")
-            self._status_reset.stop()  # keep error on screen
+            self._status_reset.start(2000)
         elif ok:
             self.lblStatus.setStyleSheet("color:#0f6b3c;")
-            self._status_reset.start(1000)  # auto-reset after 1 seconds
+            self._status_reset.start(2000)
         else:
             self.lblStatus.setStyleSheet("color:#1c1e23;")
             self._status_reset.stop()
 
         self.lblStatus.setText(text)
+        # ⟵ always re-focus the scanner immediately and once more after the event loop returns
+        self.scEdit.setFocus(Qt.OtherFocusReason)
+        QTimer.singleShot(50, lambda: self.scEdit.setFocus(Qt.OtherFocusReason))

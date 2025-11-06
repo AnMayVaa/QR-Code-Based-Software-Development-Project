@@ -1,5 +1,6 @@
 import qrcode
 import PIL
+from PIL import Image, ImageDraw, ImageFont
 import secrets
 import base64
 
@@ -10,12 +11,10 @@ class QRGen:
             version=2, error_correction=qrcode.constants.ERROR_CORRECT_H
         )
 
-    def generate_token(self, length=22):
-        return base64.urlsafe_b64encode(secrets.token_bytes(length)).decode("utf-8")[
-            :length
-        ]
+    def generate_token(self):
+        return "MODE:TOGGLE"
 
-    def generate_qrcode(self, data, filename=("qrcode.png")):
+    def generate_qrcode(self, data, filename=("toggle_mode.png")):
         self.qr.add_data(data)
         self.qr.make(fit=True)
         img = self.qr.make_image(fill_color="black", back_color="white")

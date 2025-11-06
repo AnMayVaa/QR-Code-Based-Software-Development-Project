@@ -43,3 +43,15 @@ class LocationPanel(QGroupBox):
         lay = QHBoxLayout(self)
         lay.addWidget(self.cmb, 1)
         lay.addWidget(btn)
+
+    def set_current_location(self, loc: str):
+        if not loc:
+            return
+        le = self.cmb.lineEdit()
+        self.cmb.blockSignals(True)  # don't fire editing/activated signals
+        if self.cmb.findText(loc) == -1:  # keep list in sync
+            self.cmb.addItem(loc)
+        self.cmb.setCurrentText(loc)
+        if le is not None:
+            le.setText(loc)  # ensure the editor shows it too
+        self.cmb.blockSignals(False)

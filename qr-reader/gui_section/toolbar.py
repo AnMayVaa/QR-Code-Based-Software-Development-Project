@@ -28,9 +28,7 @@ def build_toolbar(window):
 
     # --- left: logo + app summary (what it does) ---
     tb.addWidget(_logo_label(LOGO_PATH))
-    summary = QLabel(
-        "ระบบ QR Check-in/Check-out"
-    )
+    summary = QLabel("ระบบ QR Check-in/Check-out")
     summary.setStyleSheet("color:#334155; padding-right:8px;")
     tb.addWidget(summary)
 
@@ -53,5 +51,9 @@ def build_toolbar(window):
     act_exit = QAction("ออก (Q/Ctrl+Q/Ctrl+C)", window)
     act_exit.triggered.connect(window.close)
     tb.addAction(act_exit)
+
+    act_manual_input = QAction("พิมพ์โทเคน/คำสั่ง (F2)", window)
+    act_manual_input.triggered.connect(window.prompt_manual_input)
+    tb.addAction(act_manual_input)
 
     return tb
