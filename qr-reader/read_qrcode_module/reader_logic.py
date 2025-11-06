@@ -115,9 +115,9 @@ class ReaderLogic:
             "qr_data": f"{token},{self.location},1,{now}",
             "existed": True,
         }
-        if dt <= half:
+        # if dt <= half:
             # Tell the caller to replace the *last* check-in row for this token
-            result["replace_last"] = True
+            # result["replace_last"] = True
         return result
 
 
@@ -173,8 +173,8 @@ def apply_forced_mode(
             result.update(
                 status=1, message=("Rechecked in" if existed else "Checked in")
             )
-            if replace:
-                result["replace_last"] = True
+            # if replace:
+                # result["replace_last"] = True
             return result
 
         return result

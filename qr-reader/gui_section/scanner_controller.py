@@ -23,6 +23,7 @@ class ScannerController(QObject):
     token_update = pyqtSignal(str)
     location_changed = pyqtSignal(str)
     mode_changed = pyqtSignal(object)
+    scan_event = pyqtSignal(str, str, int, int)
 
     def __init__(
         self, location: str, scan_cooldown: int, stay_duration: int, parent=None
@@ -166,24 +167,18 @@ class ScannerController(QObject):
         now_str = datetime.now(TZ).strftime(TIME_FMT_HMS)
 
         # 6) Persist log
-        if status != -1 and result.get("qr_data"):
+        if status in (0, 1):
             try:
                 q = QRData(token, self.location, status, int(time.time()))
-                if status == 1 and result.get("replace_last"):
-                    q.write_replace_last_checkin()
-                else:
-                    q.write_data()
+                q.write_data()
             except Exception:
                 try:
                     with open("qr_log.json", "w", encoding="utf-8") as f:
-                        f.write("[]")
-                    q = QRData(token, self.location, status, int(time.time()))
-                    if status == 1 and result.get("replace_last"):
-                        q.write_replace_last_checkin()
-                    else:
+                        f.write([""])  # clear file
+                        q = QRData(token, self.location, status, int(time.time()))
                         q.write_data()
                 except Exception:
-                    pass
+                    pass  # give up
 
         # 7) UI status
         self.status_text.emit(f"{thai}  เวลา {now_str}", status in (0, 1), False)
